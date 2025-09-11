@@ -38,6 +38,3 @@ dist/
 build/
 
 #code base
-codebase.txt
-my_repo_context.md
-create_codebase_txt.sh

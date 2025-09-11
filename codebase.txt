@@ -1,0 +1,629 @@
+.
+├── actuation
+│   ├── __init__.py
+│   ├── motor.py
+│   └── steering.py
+├── codebase.txt
+├── control
+│   ├── controller.py
+│   ├── __init__.py
+│   └── pid.py
+├── create_codebase_txt.sh
+├── .gitignore
+├── lane_follower.service
+├── main.py
+├── perception
+│   ├── __init__.py
+│   ├── lane_detection.py
+│   └── perception_adapter.py
+├── README.md
+├── requirements.txt
+├── telemetry.csv
+├── tests
+│   ├── test_motor.py
+│   └── test_servo.py
+└── utils
+    ├── __init__.py
+    └── logger.py
+
+5 directories, 21 files
+
+==========================================
+
+--- File: ./requirements.txt ---
+opencv-python
+numpy
+pigpio
+
+--- File: ./.gitignore ---
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+
+# Telemetry logs
+*.csv
+*.log
+
+# Jupyter notebooks checkpoints (if you experiment later)
+.ipynb_checkpoints/
+
+# OS-specific junk
+.DS_Store
+Thumbs.db
+
+# Editor configs
+.vscode/
+.idea/
+
+# Systemd generated files
+*.service~
+
+# Compiled C extensions (if ever used)
+*.so
+
+# Python packaging artifacts
+*.egg-info/
+dist/
+build/
+
+#code base
+codebase.txt
+my_repo_context.md
+create_codebase_txt.sh
+--- File: ./main.py ---
+import cv2
+from perception.perception_adapter import detect_lane_params
+from control.controller import LaneFollowerController
+from utils.logger import Logger
+import time
+
+def main():
+    cap = cv2.VideoCapture(0)  # USB cam
+    ctrl = LaneFollowerController()
+    log = Logger()
+    try: 
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            offset, heading, conf = detect_lane_params(frame)
+            steer, speed = ctrl.update(offset, heading, conf)
+            log.log(offset, heading, steer, speed, conf)
+    except KeyboardInterrupt:
+        print("Interrupted by user. Cleaning up...")
+    finally:
+        ctrl.cleanup()
+        time.sleep(1)  # Ensure all commands are sent before releasing the camera
+        cap.release()
+        cv2.destroyAllWindows()
+        print("Shutdown complete.")
+
+if __name__ == "__main__":
+    main()
+
+--- File: ./control/__init__.py ---
+
+--- File: ./control/controller.py ---
+import math
+from .pid import PID
+from actuation import steering, motor
+import pigpio
+
+pi = pigpio.pi()
+
+class LaneFollowerController:
+    def __init__(self):
+        self.pid = PID(1.2, 0.0, 0.2, output_limits=(-30, 30))  # tune later
+
+    def update(self, offset, heading, confidence):
+        # composite error
+        composite = 0.7*offset + 0.3*heading
+        steer_angle = self.pid.update(composite)
+
+        # base motor speed (scale down if low confidence)
+        base_speed = 0.5 * confidence  # 50% duty max
+        speed = base_speed * (1 - min(abs(steer_angle)/30, 1)*0.5)
+
+        steering.set_steering(steer_angle)
+        motor.set_motor(speed)
+
+        return steer_angle, speed
+
+    def cleanup(self):
+        print("Executing controller cleanup...")
+        
+        # 1. Stop the motor.
+        motor.set_motor(0)
+        
+        # 2. Disable the servo pulse. This allows the servo to be moved freely
+        # by hand and reduces power consumption.
+        steering.set_steering(0)
+        
+        # 3. Stop the pigpio daemon connection.
+        pi.stop()
+        print("Cleanup complete. All hardware disabled.")
+
+--- File: ./control/pid.py ---
+import time
+
+class PID:
+    def __init__(self, Kp, Ki, Kd, output_limits=(None, None)):
+        self.Kp, self.Ki, self.Kd = Kp, Ki, Kd
+        self.min_out, self.max_out = output_limits
+        self.last_error = 0.0
+        self.integral = 0.0
+        self.last_time = None
+
+    def update(self, error, dt=None):
+        now = time.time()
+        if dt is None:
+            dt = now - self.last_time if self.last_time else 0.0
+        self.last_time = now
+
+        self.integral += error * dt
+        derivative = (error - self.last_error) / dt if dt > 0 else 0.0
+        output = self.Kp*error + self.Ki*self.integral + self.Kd*derivative
+
+        if self.min_out is not None:
+            output = max(self.min_out, output)
+        if self.max_out is not None:
+            output = min(self.max_out, output)
+
+        self.last_error = error
+        return output
+
+--- File: ./tests/test_servo.py ---
+import pigpio
+import time
+
+SERVO_PIN = 18
+pi = pigpio.pi()
+
+# Typical SG92R works at 50 Hz (20 ms period)
+# pigpio handles this automatically for servo pulses
+def set_pulse(us):
+    pi.set_servo_pulsewidth(SERVO_PIN, us)
+
+def sweep_servo():
+    print("Sweeping servo...")
+    for us in range(1000, 2001, 100):  # 1000 → 2000 µs
+        print(f"Pulse: {us} µs")
+        set_pulse(us)
+        time.sleep(0.7)
+    set_pulse(1500)  # back to center
+
+if __name__ == "__main__":
+    try:
+        # Neutral (should be straight wheels)
+        print("Centering at 1500 µs")
+        set_pulse(1500)
+        time.sleep(2)
+
+        sweep_servo()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("Returning servo to center and stopping")
+        # Command the servo to move back to the center (1500 µs)
+        pi.set_servo_pulsewidth(SERVO_PIN, 1500)
+        time.sleep(1) # Give it time to move back to the center
+        
+        # Now, disable the pulses, allowing it to be moved freely.
+        pi.set_servo_pulsewidth(SERVO_PIN, 0)
+        pi.stop()
+
+--- File: ./tests/test_motor.py ---
+import pigpio
+import time
+
+RPWM = 13
+LPWM = 12
+R_EN, L_EN = 5, 6
+PWM_FREQS = [500, 1000, 2000, 5000, 8000, 10000]  # test these
+
+pi = pigpio.pi()
+pi.set_mode(R_EN, pigpio.OUTPUT)
+pi.set_mode(L_EN, pigpio.OUTPUT)
+pi.write(R_EN, 1)
+pi.write(L_EN, 1)
+
+def stop():
+    pi.hardware_PWM(RPWM, 0, 0)
+    pi.hardware_PWM(LPWM, 0, 0)
+
+def forward(freq, duty=0.7):
+    print(f"Forward @ {freq} Hz, duty={duty}")
+    duty_int = int(duty * 1_000_000)
+    pi.hardware_PWM(RPWM, freq, duty_int)
+    pi.hardware_PWM(LPWM, 0, 0)
+
+if __name__ == "__main__":
+    try:
+        for f in PWM_FREQS:
+            forward(f, duty=1.0)  # gentle test at 30%
+            time.sleep(3)
+            stop()
+            time.sleep(2)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("Stopping motor")
+        stop()
+        pi.stop()
+
+--- File: ./telemetry.csv ---
+time,offset,heading,steer_angle,motor_speed,confidence
+1757569456.1130836,0.7609375,-0.3028848683749714,0.5301489473850102,0.49558209210512494,1.0
+1757569456.130876,0.425,-0.31234644291649843,-2.4286336648297993,0.47976138612641833,1.0
+1757569456.1735082,0.7453125,-0.2717525437319637,1.6451043446351825,0.48629079712804013,1.0
+1757569456.2016842,0.7421875,-0.2620605890287702,0.534155981176351,0.49554870015686375,1.0
+1757569456.2386816,0.3609375,-0.24007072707430788,-1.1901485420243287,0.4900820954831306,1.0
+1757569456.2654147,0.38125,-0.5789339283399525,-0.542074184384585,0.4954827151301285,1.0
+1757569456.3015895,0.0,0.0,-0.5150269282356986,0.09914162178627384,0.2
+1757569456.3327057,0.0,0.0,0.0,0.1,0.2
+1757569456.3731344,0.0,0.0,0.0,0.1,0.2
+1757569456.3997016,0.7171875,0.046840712915969654,4.5038916841408945,0.4624675692988259,1.0
+1757569456.433124,0.709375,0.044241945062668174,0.5744107366604939,0.49521324386116256,1.0
+1757569456.4710388,0.696875,0.05463307923935948,0.575299628521826,0.4952058364289848,1.0
+1757569456.5028758,0.0,0.0,-3.162001529336865,0.09472999745110523,0.2
+1757569456.5410316,0.7640625,-0.4425980868637597,2.5937378408219853,0.4783855179931501,1.0
+1757569456.5697155,0.7625,-0.4740099323910834,0.39662805647269156,0.4966947661960609,1.0
+1757569456.6011717,0.7453125,-0.33574653002700605,0.6923104121606192,0.49423074656532817,1.0
+1757569456.6363566,0.75625,-0.1575378307132599,0.9265179714709081,0.4922790169044091,1.0
+1757569456.67222,0.7828125,-0.4036339253132656,0.20437130126712738,0.4982969058227739,1.0
+1757569456.702374,0.78125,-0.24252618490462982,0.8818503911177813,0.49265124674068517,1.0
+1757569456.7367363,0.7234375,-0.1676813862245748,0.44213874867050973,0.49631551042774574,1.0
+1757569456.770788,0.771875,-0.2717525437319637,0.5662667745854147,0.4952811102117882,1.0
+1757569456.8043818,0.7375,0.05982436146337313,1.090242675271572,0.4909146443727369,1.0
+1757569456.8354433,0.778125,-0.18031179490246385,0.3082196787418141,0.4974315026771515,1.0
+1757569456.8733335,0.778125,-0.4489582144362152,0.06642620704613439,0.49944644827461554,1.0
+1757569456.9043314,0.8015625,-0.4361993828540366,0.6469510720738323,0.4946087410660514,1.0
+1757569456.9366894,0.8078125,-0.5807563535676704,0.2275673640608312,0.49810360529949305,1.0
+1757569456.9720623,0.9109375,-0.8045529085236568,0.5039618501922226,0.4958003179150648,1.0
+1757569457.0043058,0.8078125,-0.5567244640132403,0.49155776263618156,0.49590368531136514,1.0
+1757569457.0421758,0.828125,-0.5861975513563606,0.5129694285999494,0.49572525476166707,1.0
+1757569457.0714195,0.796875,-0.4425980868637597,0.6550529648259492,0.4945412252931171,1.0
+1757569457.104038,0.878125,-0.7748722363657229,0.19622392996289162,0.4983648005836426,1.0
+1757569457.1363873,0.76875,-0.20289825568497358,1.1610998115786244,0.49032416823684477,1.0
+1757569457.1703608,0.775,-0.14481249823893905,0.7270040431745748,0.4939416329735452,1.0
+1757569457.2034926,0.7875,-0.15245363368152062,0.6456027752787662,0.49461997687267695,1.0
+1757569457.2332044,0.834375,-0.4903627316369238,0.06216655396871451,0.49948194538359403,1.0
+1757569457.2762847,0.78125,0.013020097548367759,1.1898273964620039,0.49008477169614995,1.0
+1757569457.2972186,0.771875,0.02863800175357359,0.6408240166880301,0.49465979986093306,1.0
+1757569457.3360684,0.0,0.0,-2.8275770990544404,0.09528737150157594,0.2
+1757569457.3698986,0.0,0.0,0.0,0.1,0.2
+1757569457.4035983,0.0,0.0,0.0,0.1,0.2
+1757569457.4335544,0.0,0.0,0.0,0.1,0.2
+
+--- File: ./README.md ---
+# Lane Follower with Computer Vision for a Steering Mobile Robot
+
+--- File: ./lane_follower.service ---
+[Unit]
+Description=Lane Follower Robot
+After=network.target pigpiod.service
+
+[Service]
+ExecStart=/usr/bin/python3 /home/pi/lane_follower_robot/main.py
+WorkingDirectory=/home/pi/lane_follower_robot
+StandardOutput=journal
+StandardError=journal
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
+
+--- File: ./create_codebase_txt.sh ---
+#!/bin/bash
+
+# A script to convert a codebase into a single text file with hierarchy,
+# ignoring specified files and directories.
+
+# Set the output file name
+OUTPUT_FILE="codebase.txt"
+
+# Set the root directory of your codebase
+# By default, it uses the current directory where the script is run
+CODE_ROOT_DIR="."
+
+# Define the files and directories to ignore 🚫
+# IMPORTANT: Directories MUST end with a trailing slash to be correctly ignored.
+# This tells the script's logic to use the efficient -prune option.
+EXCLUDE_LIST=(
+    ".git/"
+    "node_modules/"
+    "__pycache__/"
+    "dist/"
+    "*.log"
+    "*.pyc"
+)
+
+# Clear the output file if it exists
+> "$OUTPUT_FILE"
+
+echo "Generating codebase hierarchy..."
+# Convert the bash array to a format 'tree' understands: 'pattern1|pattern2|...'
+EXCLUDE_STRING=$(printf "%s|" "${EXCLUDE_LIST[@]}")
+EXCLUDE_STRING=${EXCLUDE_STRING%?} # Remove the last pipe character
+
+# Use 'tree' with the -I option to exclude directories and files
+tree -a -I "$EXCLUDE_STRING" "$CODE_ROOT_DIR" >> "$OUTPUT_FILE"
+
+echo "" >> "$OUTPUT_FILE"
+echo "==========================================" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
+
+echo "Concatenating file contents..."
+
+# Build the find command dynamically to apply exclusions correctly
+FIND_CMD="find \"$CODE_ROOT_DIR\""
+
+# Add the exclusion logic for each item
+for item in "${EXCLUDE_LIST[@]}"; do
+    if [[ "$item" == */ ]]; then
+        # This is a directory, use -prune to skip it and its contents
+        FIND_CMD+=" -path \"$CODE_ROOT_DIR/${item%?}\" -prune -o"
+    else
+        # This is a file, use ! -name to exclude it
+        FIND_CMD+=" -name \"$item\" -prune -o"
+    fi
+done
+
+# Add the final -type f to select only files that haven't been pruned
+FIND_CMD+=" -type f -print0"
+
+# Use eval to execute the dynamically built find command, and pipe to while loop
+eval "$FIND_CMD" | while IFS= read -r -d $'\0' file; do
+    echo "--- File: $file ---" >> "$OUTPUT_FILE"
+    cat "$file" >> "$OUTPUT_FILE"
+    echo "" >> "$OUTPUT_FILE" # Add a newline for separation
+done
+
+echo "Done! Codebase has been exported to $OUTPUT_FILE"
+--- File: ./perception/__init__.py ---
+
+--- File: ./perception/perception_adapter.py ---
+import cv2
+import numpy as np
+from .lane_detection import canny, region_of_interest, detect_lines, average_slope_intercept, make_coordinates
+
+def detect_lane_params(frame):
+    height, width = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = canny(blur)
+    roi = region_of_interest(edges)
+
+    lines = detect_lines(roi)
+    if lines is None:
+        return 0.0, 0.0, 0.0
+
+    # Get the averaged slope and intercept values
+    left_fit_avg, right_fit_avg = average_slope_intercept(frame, lines)
+    
+    if left_fit_avg is None or right_fit_avg is None:
+        return 0.0, 0.0, 0.2
+
+    # Now call make_coordinates with the correct parameters
+    left_line_coords = make_coordinates(frame, left_fit_avg)
+    right_line_coords = make_coordinates(frame, right_fit_avg)
+
+    if left_line_coords is None or right_line_coords is None:
+        return 0.0, 0.0, 0.2 
+        
+    xL_bottom, _, xL_mid, yL_mid = left_line_coords
+    xR_bottom, _, xR_mid, yR_mid = right_line_coords
+    
+    lane_center_bottom = (xL_bottom + xR_bottom) / 2
+    lane_center_mid = (xL_mid + xR_mid) / 2
+    pixel_offset = lane_center_bottom - width / 2
+    offset_norm = pixel_offset / (width / 2)
+
+    dx = lane_center_mid - lane_center_bottom
+    dy = abs(yL_mid - height)
+    heading_rad = np.arctan2(dx, dy) if dy > 0 else 0.0
+
+    return float(offset_norm), float(heading_rad), 1.0
+
+    averaged = average_slope_intercept(frame, lines)
+    if averaged is None or len(averaged) < 2:
+        return 0.0, 0.0, 0.2  # low confidence
+
+    left, right = averaged
+    xL_bottom, _, xL_mid, yL_mid = make_coordinates(frame, left)
+    xR_bottom, _, xR_mid, yR_mid = make_coordinates(frame, right)
+
+    lane_center_bottom = (xL_bottom + xR_bottom) / 2
+    lane_center_mid = (xL_mid + xR_mid) / 2
+    pixel_offset = lane_center_bottom - width / 2
+    offset_norm = pixel_offset / (width / 2)
+
+    dx = lane_center_mid - lane_center_bottom
+    dy = abs(yL_mid - height)  # vertical distance
+    heading_rad = np.arctan2(dx, dy) if dy > 0 else 0.0
+
+    return float(offset_norm), float(heading_rad), 1.0
+
+--- File: ./perception/lane_detection.py ---
+import cv2
+import numpy as np
+
+# ----------------------------
+# Core image processing functions
+# ----------------------------
+
+def canny(image):
+    """Apply Canny edge detection."""
+    return cv2.Canny(image, 100, 200)
+
+def region_of_interest(image):
+    """Mask the image to keep only the region of interest (ROI)."""
+    height = image.shape[0]
+    width = image.shape[1]
+    polygons = np.array([[(0, height / 2 + 100), (width, height / 2 + 100), (width, height), (0, height)]], dtype=np.int32)
+    mask = np.zeros_like(image)
+    cv2.fillPoly(mask, polygons, 255)
+    return cv2.bitwise_and(image, mask)
+
+def detect_lines(image):
+    """Detect lines using Hough Transform."""
+    return cv2.HoughLinesP(
+        image,
+        rho=2,
+        theta=np.pi / 180,
+        threshold=100,
+        minLineLength=40,
+        maxLineGap=5
+    )
+
+def average_slope_intercept(image, lines):
+    left_fit = []
+    right_fit = []
+    if lines is None:
+        return None, None
+
+    for line in lines:
+        x1, y1, x2, y2 = line.reshape(4)
+        if x2 - x1 == 0:
+            continue
+        slope = (y2 - y1) / (x2 - x1)
+        intercept = y1 - slope * x1
+        if slope < 0:
+            left_fit.append((slope, intercept))
+        else:
+            right_fit.append((slope, intercept))
+
+    # Check for empty lists before calculating mean
+    left_avg = np.mean(left_fit, axis=0) if left_fit else None
+    right_avg = np.mean(right_fit, axis=0) if right_fit else None
+
+    # Return the averaged slope and intercept, not the coordinates
+    return left_avg, right_avg
+def make_coordinates(image, line_params):
+    """Convert slope/intercept into line coordinates."""
+    try:
+        slope, intercept = line_params
+    except TypeError:
+        return None
+    y1 = image.shape[0]            # bottom of frame
+    y2 = int(y1 * 0.6)             # 60% from bottom
+    if slope == 0:
+        return None
+    x1 = int((y1 - intercept) / slope)
+    x2 = int((y2 - intercept) / slope)
+    return np.array([x1, y1, x2, y2])
+
+# ----------------------------
+# Optional test runner
+# ----------------------------
+
+def process_frame(frame):
+    """
+    Run the full pipeline on one frame.
+    Returns left/right line coordinates or None.
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = canny(blur)
+    cropped = region_of_interest(edges)
+    lines = detect_lines(cropped)
+    return average_slope_intercept(frame, lines)
+
+if __name__ == "__main__":
+    # Standalone test mode: visualize lane detection
+    cap = cv2.VideoCapture(0)  # USB cam
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        lines = process_frame(frame)
+        if lines is not None:
+            for x1, y1, x2, y2 in lines:
+                cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
+
+        cv2.imshow("Lane Detection", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+--- File: ./codebase.txt ---
+
+--- File: ./utils/__init__.py ---
+
+--- File: ./utils/logger.py ---
+import csv
+import time
+
+class Logger:
+    def __init__(self, filename="telemetry.csv"):
+        self.file = open(filename, "w", newline="")
+        self.writer = csv.writer(self.file)
+        self.writer.writerow(["time","offset","heading","steer_angle","motor_speed","confidence"])
+
+    def log(self, offset, heading, steer, speed, conf):
+        self.writer.writerow([time.time(), offset, heading, steer, speed, conf])
+        self.file.flush()
+
+--- File: ./actuation/__init__.py ---
+
+--- File: ./actuation/steering.py ---
+import pigpio
+
+SERVO_PIN = 18
+NEUTRAL_US = 1500
+MIN_US = 1000
+MAX_US = 2000
+MAX_WHEEL_ANGLE_DEG = 30.0
+
+pi = pigpio.pi()
+
+def angle_to_pulse(angle_deg):
+    angle_deg = max(-MAX_WHEEL_ANGLE_DEG, min(MAX_WHEEL_ANGLE_DEG, angle_deg))
+    return int(NEUTRAL_US + (angle_deg / MAX_WHEEL_ANGLE_DEG) * (MAX_US - NEUTRAL_US))
+
+def set_steering(angle_deg):
+    pulse = angle_to_pulse(angle_deg)
+    pi.set_servo_pulsewidth(SERVO_PIN, pulse)
+
+--- File: ./actuation/motor.py ---
+import pigpio
+
+RPWM = 13
+LPWM = 12
+R_EN, L_EN = 6 ,5
+PWM_FREQ = 1000 # 8 kHz
+
+pi = pigpio.pi()
+for pin in (R_EN, L_EN):
+    pi.set_mode(pin, pigpio.OUTPUT)
+    pi.write(pin, 1)
+
+def set_motor(speed):
+    """
+    speed ∈ [-1,1] (negative = reverse)
+    """
+    duty = int(abs(speed) * 1_000_000)
+    if speed > 0:
+        pi.hardware_PWM(RPWM, PWM_FREQ, duty)
+        pi.hardware_PWM(LPWM, 0, 0)
+    elif speed < 0:
+        pi.hardware_PWM(LPWM, PWM_FREQ, duty)
+        pi.hardware_PWM(RPWM, 0, 0)
+    else:
+        pi.hardware_PWM(RPWM, 0, 0)
+        pi.hardware_PWM(LPWM, 0, 0)
+
