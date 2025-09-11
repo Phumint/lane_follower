@@ -1,9 +1,9 @@
 import pigpio
 
-RPWM = 12
-LPWM = 13
+RPWM = 13
+LPWM = 12
 R_EN, L_EN = 6 ,5
-PWM_FREQ = 500 # 8 kHz
+PWM_FREQ = 1000 # 8 kHz
 
 pi = pigpio.pi()
 for pin in (R_EN, L_EN):

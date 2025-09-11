@@ -30,31 +30,28 @@ def detect_lines(image):
     )
 
 def average_slope_intercept(image, lines):
-    """Average out left and right lines."""
-    if lines is None:
-        return None
-
     left_fit = []
     right_fit = []
+    if lines is None:
+        return None, None
+
     for line in lines:
         x1, y1, x2, y2 = line.reshape(4)
-        if x2 == x1:
-            continue  # avoid divide by zero
+        if x2 - x1 == 0:
+            continue
         slope = (y2 - y1) / (x2 - x1)
         intercept = y1 - slope * x1
-        if slope < 0:  # left lane
+        if slope < 0:
             left_fit.append((slope, intercept))
-        else:          # right lane
+        else:
             right_fit.append((slope, intercept))
 
-    left_line = make_coordinates(image, np.mean(left_fit, axis=0)) if left_fit else None
-    right_line = make_coordinates(image, np.mean(right_fit, axis=0)) if right_fit else None
+    # Check for empty lists before calculating mean
+    left_avg = np.mean(left_fit, axis=0) if left_fit else None
+    right_avg = np.mean(right_fit, axis=0) if right_fit else None
 
-    if left_line is None or right_line is None:
-        return None
-
-    return np.array([left_line, right_line])
-
+    # Return the averaged slope and intercept, not the coordinates
+    return left_avg, right_avg
 def make_coordinates(image, line_params):
     """Convert slope/intercept into line coordinates."""
     try:

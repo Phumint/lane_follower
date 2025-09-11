@@ -1,8 +1,8 @@
 import pigpio
 import time
 
-RPWM = 12
-LPWM = 13
+RPWM = 13
+LPWM = 12
 R_EN, L_EN = 5, 6
 PWM_FREQS = [500, 1000, 2000, 5000, 8000, 10000]  # test these
 
