@@ -28,6 +28,11 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
-        print("Stopping servo")
-        pi.set_servo_pulsewidth(SERVO_PIN, 0)  # disable pulses
+        print("Returning servo to center and stopping")
+        # Command the servo to move back to the center (1500 µs)
+        pi.set_servo_pulsewidth(SERVO_PIN, 1500)
+        time.sleep(1) # Give it time to move back to the center
+        
+        # Now, disable the pulses, allowing it to be moved freely.
+        pi.set_servo_pulsewidth(SERVO_PIN, 0)
         pi.stop()
