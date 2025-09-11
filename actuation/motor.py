@@ -14,7 +14,8 @@ def set_motor(speed):
     """
     speed ∈ [-1,1] (negative = reverse)
     """
-    duty = int(abs(speed) * 1_000_000)
+    duty = int(abs(speed) * 1000000)  # range 0-1M
+    duty = min(max(duty, 0), 1000000)  # clamp
     if speed > 0:
         pi.hardware_PWM(RPWM, PWM_FREQ, duty)
         pi.hardware_PWM(LPWM, 0, 0)

@@ -7,16 +7,16 @@ pi = pigpio.pi()
 
 class LaneFollowerController:
     def __init__(self):
-        self.pid = PID(1.2, 0.0, 0.2, output_limits=(-30, 30))  # tune later
+        self.pid = PID(5.0, 0.0, 0.2, output_limits=(-20, 20))  # tune later
 
     def update(self, offset, heading, confidence):
         # composite error
-        composite = 0.7*offset*30 + 0.3*heading*30
+        composite = 0.8*offset*30 + 0.2*heading*30
         steer_angle = -self.pid.update(composite)
 
         # base motor speed (scale down if low confidence)
         base_speed = 1.0 * confidence  # 50% duty max
-        speed = base_speed * (1 - min(abs(steer_angle)/30, 1)*0.5)
+        speed = base_speed * (1 - min(abs(steer_angle)/20, 1)*0.5)
 
         steering.set_steering(steer_angle)
         motor.set_motor(speed)
