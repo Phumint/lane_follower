@@ -76,7 +76,7 @@ def process_frame(frame):
     Returns left/right line coordinates or None.
     """
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (7, 7), 0)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = canny(blur)
     cropped = region_of_interest(edges)
     lines = detect_lines(cropped)

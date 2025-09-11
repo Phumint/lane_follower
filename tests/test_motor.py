@@ -16,7 +16,7 @@ def stop():
     pi.hardware_PWM(RPWM, 0, 0)
     pi.hardware_PWM(LPWM, 0, 0)
 
-def forward(freq, duty=0.5):
+def forward(freq, duty=0.7):
     print(f"Forward @ {freq} Hz, duty={duty}")
     duty_int = int(duty * 1_000_000)
     pi.hardware_PWM(RPWM, freq, duty_int)

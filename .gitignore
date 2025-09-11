@@ -36,3 +36,7 @@ Thumbs.db
 *.egg-info/
 dist/
 build/
+
+#code base
+codebase.txt
+my_repo_context.md
