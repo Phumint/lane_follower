@@ -7,16 +7,13 @@ import numpy as np
 
 def canny(image):
     """Apply Canny edge detection."""
-    return cv2.Canny(image, 50, 150)
+    return cv2.Canny(image, 100, 200)
 
 def region_of_interest(image):
     """Mask the image to keep only the region of interest (ROI)."""
     height = image.shape[0]
-    polygons = np.array([[
-        (200, height),
-        (image.shape[1] - 200, height),
-        (image.shape[1] // 2, int(height * 0.6))
-    ]])
+    width = image.shape[1]
+    polygons = np.array([[(0, height / 2 + 100), (width, height / 2 + 100), (width, height), (0, height)]], dtype=np.int32)
     mask = np.zeros_like(image)
     cv2.fillPoly(mask, polygons, 255)
     return cv2.bitwise_and(image, mask)
@@ -82,7 +79,7 @@ def process_frame(frame):
     Returns left/right line coordinates or None.
     """
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    blur = cv2.GaussianBlur(gray, (7, 7), 0)
     edges = canny(blur)
     cropped = region_of_interest(edges)
     lines = detect_lines(cropped)
