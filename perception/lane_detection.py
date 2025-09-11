@@ -13,7 +13,14 @@ def region_of_interest(image):
     """Mask the image to keep only the region of interest (ROI)."""
     height = image.shape[0]
     width = image.shape[1]
-    polygons = np.array([[(0, height / 2 + 100), (width, height / 2 + 100), (width, height), (0, height)]], dtype=np.int32)
+    # polygons = np.array([[(0, height / 2 + 100), (width, height / 2 + 100), (width, height), (0, height)]], dtype=np.int32)
+    polygons = np.array([[
+    (width*0.1, height),
+    (width*0.9, height),
+    (width*0.6, height*0.6),
+    (width*0.4, height*0.6)
+    ]], dtype=np.int32)
+
     mask = np.zeros_like(image)
     cv2.fillPoly(mask, polygons, 255)
     return cv2.bitwise_and(image, mask)
@@ -25,8 +32,8 @@ def detect_lines(image):
         rho=2,
         theta=np.pi / 180,
         threshold=100,
-        minLineLength=40,
-        maxLineGap=5
+        minLineLength=20,
+        maxLineGap=10
     )
 
 def average_slope_intercept(image, lines):
