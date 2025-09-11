@@ -25,7 +25,7 @@ def forward(freq, duty=0.5):
 if __name__ == "__main__":
     try:
         for f in PWM_FREQS:
-            forward(f, duty=0.3)  # gentle test at 30%
+            forward(f, duty=1.0)  # gentle test at 30%
             time.sleep(3)
             stop()
             time.sleep(2)
