@@ -20,6 +20,7 @@ EXCLUDE_LIST=(
     "dist/"
     "*.log"
     "*.pyc"
+    "*.avi"
 )
 
 # Clear the output file if it exists
