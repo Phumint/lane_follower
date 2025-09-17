@@ -40,10 +40,10 @@ def detect_lane_params_sliding(frame):
 
     # --- Define ROI polygon (same trapezoid used in perspective transform) ---
     roi_points = np.array([[
-        (0, height),
-        (width, height),
-        (width, int(height*0.6)),
-        (0, int(height*0.6))
+        (0, height-50),
+        (width, height-50),
+        (width, int(height*0.5)),
+        (0, int(height*0.5))
     ]], dtype=np.int32)
 
     # Draw ROI for visualization
@@ -59,8 +59,11 @@ def detect_lane_params_sliding(frame):
 
     # --- Mask for blue lanes ---
     hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
-    lower_blue = np.array([100, 100, 100])
-    upper_blue = np.array([140, 255, 255])
+    # lower_blue = np.array([100, 100, 100])
+    # upper_blue = np.array([140, 255, 255])
+
+    lower_blue = np.array([86, 40, 0])
+    upper_blue = np.array([150, 255, 255])
     mask = cv2.inRange(hsv, lower_blue, upper_blue)
 
     # --- Sliding window search ---
@@ -77,17 +80,30 @@ def detect_lane_params_sliding(frame):
 
     quad_points = np.array([[top_left, bottom_left, bottom_right, top_right]], dtype=np.int32).reshape((-1,1,2))
 
-    overlay = warped.copy()
-    cv2.fillPoly(overlay, [quad_points], (0,255,0))
-    alpha = 0.3
-    warped_lane = cv2.addWeighted(overlay, alpha, warped, 1-alpha, 0)
+    # overlay = warped.copy()
+    # cv2.fillPoly(overlay, [quad_points], (0,255,0))
+    # alpha = 0.3
+    # warped_lane = cv2.addWeighted(overlay, alpha, warped, 1-alpha, 0)
 
-    # --- Map back to original view ---
-    unwarped_lane = cv2.warpPerspective(warped_lane, inv_matrix, (width,height))
-    result = cv2.addWeighted(frame, 1, unwarped_lane, 0.7, 0)
+    # # --- Map back to original view ---
+    # unwarped_lane = cv2.warpPerspective(warped_lane, inv_matrix, (width,height))
+    # result = cv2.addWeighted(frame, 1, unwarped_lane, 0.7, 0)
+
+    # --- Create a black mask for the lane polygon ---
+    lane_mask = np.zeros_like(warped)
+
+    # Draw filled green polygon on the mask
+    cv2.fillPoly(lane_mask, [quad_points], (0, 255, 0))
+
+    # Warp mask back to original perspective
+    unwarped_lane = cv2.warpPerspective(lane_mask, inv_matrix, (width, height))
+
+    # Combine with original frame (only polygon area is green)
+    alpha = 0.3
+    result = cv2.addWeighted(frame, 1, unwarped_lane, alpha, 0)
 
     # Draw ROI lines on result for clarity
-    cv2.polylines(result, roi_points, isClosed=True, color=(0,0,255), thickness=2)
+    cv2.polylines(result, roi_points, isClosed=True, color=(0,0,255), thickness=1)
 
     # --- Offset calculation ---
     lane_center = (np.mean(lx) + np.mean(rx)) / 2

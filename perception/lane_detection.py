@@ -83,7 +83,7 @@ def sliding_window_lane(mask):
     left_base = np.argmax(histogram[:midpoint])
     right_base = np.argmax(histogram[midpoint:]) + midpoint
 
-    n_windows = 9
+    n_windows = 12
     window_height = mask.shape[0]//n_windows
     nonzero = mask.nonzero()
     nonzeroy, nonzerox = np.array(nonzero[0]), np.array(nonzero[1])
