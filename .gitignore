@@ -38,3 +38,6 @@ dist/
 build/
 
 #code base
+
+.lane_run.avi
+.lane_run1.avi
