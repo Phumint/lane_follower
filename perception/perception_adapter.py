@@ -40,21 +40,21 @@ def detect_lane_params(frame):
 
     return float(offset_norm), float(heading_rad), 1.0
 
-    averaged = average_slope_intercept(frame, lines)
-    if averaged is None or len(averaged) < 2:
-        return 0.0, 0.0, 0.2  # low confidence
+    # averaged = average_slope_intercept(frame, lines)
+    # if averaged is None or len(averaged) < 2:
+    #     return 0.0, 0.0, 0.2  # low confidence
 
-    left, right = averaged
-    xL_bottom, _, xL_mid, yL_mid = make_coordinates(frame, left)
-    xR_bottom, _, xR_mid, yR_mid = make_coordinates(frame, right)
+    # left, right = averaged
+    # xL_bottom, _, xL_mid, yL_mid = make_coordinates(frame, left)
+    # xR_bottom, _, xR_mid, yR_mid = make_coordinates(frame, right)
 
-    lane_center_bottom = (xL_bottom + xR_bottom) / 2
-    lane_center_mid = (xL_mid + xR_mid) / 2
-    pixel_offset = lane_center_bottom - width / 2
-    offset_norm = pixel_offset / (width / 2)
+    # lane_center_bottom = (xL_bottom + xR_bottom) / 2
+    # lane_center_mid = (xL_mid + xR_mid) / 2
+    # pixel_offset = lane_center_bottom - width / 2
+    # offset_norm = pixel_offset / (width / 2)
 
-    dx = lane_center_mid - lane_center_bottom
-    dy = abs(yL_mid - height)  # vertical distance
-    heading_rad = np.arctan2(dx, dy) if dy > 0 else 0.0
+    # dx = lane_center_mid - lane_center_bottom
+    # dy = abs(yL_mid - height)  # vertical distance
+    # heading_rad = np.arctan2(dx, dy) if dy > 0 else 0.0
 
-    return float(offset_norm), float(heading_rad), 1.0
+    # return float(offset_norm), float(heading_rad), 1.0
